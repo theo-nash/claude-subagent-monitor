@@ -10,7 +10,8 @@ from typing import Dict, Any
 
 from database_utils import SubagentTracker, read_hook_input, write_hook_response, log_debug
 from robust_subagent_detector import RobustSubagentDetector
-from transcript_parser_v2 import TranscriptParserV2, parse_latest_subagent_conversation
+from transcript_parser import TranscriptParser, parse_latest_subagent_conversation
+from enhanced_stats_analyzer import EnhancedStatsAnalyzer
 
 def main():
     """Main hook execution function."""
@@ -80,6 +81,7 @@ def main():
         
         # Parse transcript for detailed statistics if available
         stats_updated = False
+        enhanced_stats = None
         if transcript_path and os.path.exists(transcript_path) and subagent_session_id:
             try:
                 # Use enhanced parser to get latest conversation stats
@@ -87,23 +89,42 @@ def main():
                     transcript_path, subagent_type
                 )
                 
-                if tool_usage or message_stats:
-                    # Update database with statistics
+                # Get the actual conversation for enhanced analysis
+                parser = TranscriptParserV2(transcript_path)
+                conversation = parser.get_latest_subagent_conversation(subagent_type)
+                
+                # Analyze with enhanced stats analyzer
+                if conversation:
+                    analyzer = EnhancedStatsAnalyzer()
+                    enhanced_stats = analyzer.analyze_conversation(conversation)
+                    
+                    log_debug(f"Enhanced statistics collected", {
+                        'runtime': enhanced_stats.get('total_runtime'),
+                        'turns': enhanced_stats.get('total_turns'),
+                        'files_created': enhanced_stats.get('files_created'),
+                        'files_modified': enhanced_stats.get('files_modified'),
+                        'docs_updated': enhanced_stats.get('documentation_updated')
+                    })
+                
+                if tool_usage or message_stats or enhanced_stats:
+                    # Update database with all statistics
                     db_tracker.update_statistics(
                         subagent_session_id=subagent_session_id,
                         tool_stats=tool_usage,
                         message_stats=message_stats,
-                        total_tokens=token_estimate
+                        total_tokens=token_estimate,
+                        enhanced_stats=enhanced_stats
                     )
                     
                     stats_updated = True
                     
                     log_debug(f"Updated subagent statistics from transcript", {
                         'subagent_session_id': subagent_session_id,
-                        'tools_used': len(tool_usage),
-                        'total_tool_calls': sum(tool_usage.values()),
-                        'message_types': len(message_stats),
-                        'estimated_tokens': token_estimate
+                        'tools_used': len(tool_usage) if tool_usage else 0,
+                        'total_tool_calls': sum(tool_usage.values()) if tool_usage else 0,
+                        'message_types': len(message_stats) if message_stats else 0,
+                        'estimated_tokens': token_estimate,
+                        'enhanced_metrics': bool(enhanced_stats)
                     })
                 
             except Exception as e:
@@ -131,10 +152,24 @@ def main():
         status_emoji = "✅" if confidence >= 0.8 else "⚠️" if confidence >= 0.5 else "❓"
         stats_info = ""
         
-        if stats_updated and tool_usage:
-            tools_count = len(tool_usage)
-            total_calls = sum(tool_usage.values())
-            stats_info = f" - {tools_count} tools, {total_calls} calls, ~{token_estimate:,} tokens"
+        if stats_updated:
+            parts = []
+            if enhanced_stats:
+                if enhanced_stats.get('total_runtime'):
+                    parts.append(f"{enhanced_stats['total_runtime']}s")
+                if enhanced_stats.get('files_created') or enhanced_stats.get('files_modified'):
+                    file_ops = []
+                    if enhanced_stats.get('files_created'):
+                        file_ops.append(f"{enhanced_stats['files_created']} created")
+                    if enhanced_stats.get('files_modified'):
+                        file_ops.append(f"{enhanced_stats['files_modified']} modified")
+                    parts.append(f"files: {', '.join(file_ops)}")
+            if tool_usage:
+                tools_count = len(tool_usage)
+                total_calls = sum(tool_usage.values())
+                parts.append(f"{tools_count} tools")
+            if parts:
+                stats_info = f" - {', '.join(parts)}"
         
         response = {
             "continue": True,

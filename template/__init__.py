@@ -9,12 +9,12 @@ from .database_utils import SubagentTracker
 from .active_subagent_tracker import ActiveSubagentTracker
 from .robust_subagent_detector import RobustSubagentDetector
 from .sidechain_reconstructor import SidechainReconstructor
-from .transcript_parser_v2 import TranscriptParserV2
+from .transcript_parser import TranscriptParser
 
 __all__ = [
     'SubagentTracker',
     'ActiveSubagentTracker',
     'RobustSubagentDetector',
     'SidechainReconstructor',
-    'TranscriptParserV2'
+    'TranscriptParser'
 ]

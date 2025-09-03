@@ -60,6 +60,15 @@ class SubagentTracker:
             total_messages INTEGER DEFAULT 0,
             total_tokens_estimated INTEGER DEFAULT 0,
             success_status TEXT,
+            -- Enhanced statistics
+            total_runtime INTEGER DEFAULT 0,
+            total_turns INTEGER DEFAULT 0,
+            files_created INTEGER DEFAULT 0,
+            files_modified INTEGER DEFAULT 0,
+            files_read INTEGER DEFAULT 0,
+            files_deleted INTEGER DEFAULT 0,
+            file_paths TEXT,  -- JSON array of file paths
+            documentation_updated BOOLEAN DEFAULT 0,
             created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
             UNIQUE(session_id, subagent_type, start_timestamp)
@@ -199,12 +208,13 @@ class SubagentTracker:
     def update_statistics(self, subagent_session_id: int, 
                          tool_stats: Dict[str, int] = None,
                          message_stats: Dict[str, Dict[str, int]] = None,
-                         total_tokens: int = None):
+                         total_tokens: int = None,
+                         enhanced_stats: Dict[str, Any] = None):
         """Update tool usage and message statistics for a subagent session."""
         
         with self.get_connection() as conn:
             # Update main session with totals
-            if tool_stats or message_stats or total_tokens:
+            if tool_stats or message_stats or total_tokens or enhanced_stats:
                 updates = []
                 params = []
                 
@@ -221,6 +231,41 @@ class SubagentTracker:
                 if total_tokens:
                     updates.append("total_tokens_estimated = ?")
                     params.append(total_tokens)
+                
+                # Add enhanced statistics
+                if enhanced_stats:
+                    if 'total_runtime' in enhanced_stats:
+                        updates.append("total_runtime = ?")
+                        params.append(enhanced_stats['total_runtime'])
+                    
+                    if 'total_turns' in enhanced_stats:
+                        updates.append("total_turns = ?")
+                        params.append(enhanced_stats['total_turns'])
+                    
+                    if 'files_created' in enhanced_stats:
+                        updates.append("files_created = ?")
+                        params.append(enhanced_stats['files_created'])
+                    
+                    if 'files_modified' in enhanced_stats:
+                        updates.append("files_modified = ?")
+                        params.append(enhanced_stats['files_modified'])
+                    
+                    if 'files_read' in enhanced_stats:
+                        updates.append("files_read = ?")
+                        params.append(enhanced_stats['files_read'])
+                    
+                    if 'files_deleted' in enhanced_stats:
+                        updates.append("files_deleted = ?")
+                        params.append(enhanced_stats['files_deleted'])
+                    
+                    if 'file_paths' in enhanced_stats:
+                        # Store as JSON array
+                        updates.append("file_paths = ?")
+                        params.append(json.dumps(enhanced_stats['file_paths']))
+                    
+                    if 'documentation_updated' in enhanced_stats:
+                        updates.append("documentation_updated = ?")
+                        params.append(1 if enhanced_stats['documentation_updated'] else 0)
                 
                 if updates:
                     params.append(subagent_session_id)
