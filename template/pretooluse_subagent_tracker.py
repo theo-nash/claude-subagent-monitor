@@ -9,6 +9,7 @@ import os
 
 from database_utils import SubagentTracker, read_hook_input, write_hook_response, log_debug, extract_subagent_type
 from active_subagent_tracker import ActiveSubagentTracker
+from mcp_correlation_service import store_mcp_context
 
 def main():
     """Main hook execution function."""
@@ -34,9 +35,50 @@ def main():
             'transcript_path': transcript_path
         })
         
+        # Store correlation for MCP tools
+        if tool_name and tool_name.startswith('mcp'):
+            try:
+                # Get current agent context
+                active_tracker = ActiveSubagentTracker()
+                active_agents = active_tracker.get_active_for_session(session_id)
+                
+                # Use most recently started agent if multiple active
+                current_agent = None
+                current_confidence = 0.0
+                if active_agents:
+                    # Sort by start time (most recent first)
+                    sorted_agents = sorted(active_agents, 
+                                         key=lambda a: a['started_at'], 
+                                         reverse=True)
+                    if sorted_agents:
+                        current_agent = sorted_agents[0]['subagent_type']
+                        # Confidence based on number of active agents
+                        current_confidence = 1.0 / len(active_agents)
+                
+                # Store correlation
+                correlation_id = store_mcp_context(
+                    tool_name=tool_name,
+                    params=tool_input,
+                    session_id=session_id,
+                    agent_type=current_agent,
+                    agent_confidence=current_confidence,
+                    project_path=cwd,
+                    user_message=None  # Could extract from transcript if needed
+                )
+                
+                log_debug(f"Stored MCP correlation: {correlation_id}", {
+                    'tool_name': tool_name,
+                    'session_id': session_id[:8] + '...',
+                    'agent_type': current_agent,
+                    'confidence': current_confidence
+                })
+                
+            except Exception as e:
+                log_debug(f"Error storing MCP correlation: {e}")
+        
         # Only process Task tool calls (subagent invocations)
         if tool_name != 'Task':
-            log_debug(f"Ignoring non-Task tool: {tool_name}")
+            log_debug(f"Processed non-Task tool: {tool_name}")
             write_hook_response(exit_code=0)
             return
         

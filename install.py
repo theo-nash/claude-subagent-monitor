@@ -243,7 +243,6 @@ def update_settings(base_dir: Path, monitor_dir: Path, install_location: str):
     new_hooks = {
         "PreToolUse": [
             {
-                "matcher": "Task",
                 "hooks": [
                     {
                         "type": "command",
