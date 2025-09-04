@@ -38,9 +38,9 @@ def main():
         # Handle MCP tools - store correlation for context
         if tool_name and tool_name.startswith('mcp'):
             try:
-                # Get current agent context
+                # Get current agent context for this session only
                 active_tracker = ActiveSubagentTracker()
-                active_agents = active_tracker.get_active_for_session(session_id)
+                active_agents = active_tracker.get_active_subagents(session_id)
                 
                 # Use most recently started agent if multiple active
                 current_agent = None

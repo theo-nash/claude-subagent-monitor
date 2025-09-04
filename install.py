@@ -282,40 +282,11 @@ def update_settings(base_dir: Path, monitor_dir: Path, install_location: str):
     # Hook paths point to our self-contained directory
     hooks_path = monitor_dir / 'hooks'
     
-    new_hooks = {
-        "PreToolUse": [
-            {
-                "matcher": "Task",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"python3 {hooks_path}/pretooluse.py",
-                        "timeout": 10
-                    }
-                ]
-            },
-            {
-                "matcher": "mcp.*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"python3 {hooks_path}/pretooluse.py",
-                        "timeout": 10
-                    }
-                ]
-            }
-        ],
-        "SubagentStop": [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": f"python3 {hooks_path}/subagentstop.py",
-                        "timeout": 30
-                    }
-                ]
-            }
-        ]
+    # Our hook command
+    our_hook = {
+        "type": "command",
+        "command": f"python3 {hooks_path}/pretooluse.py",
+        "timeout": 10
     }
     
     # Load or create settings
@@ -329,40 +300,103 @@ def update_settings(base_dir: Path, monitor_dir: Path, install_location: str):
     else:
         settings = {}
     
-    # Update hooks - preserve existing hooks, only update our own
+    # Update hooks - preserve existing hooks, add our hook to relevant matchers
     if 'hooks' not in settings:
         settings['hooks'] = {}
     
-    for hook_type, new_hook_configs in new_hooks.items():
-        if hook_type not in settings['hooks']:
-            settings['hooks'][hook_type] = []
+    # Handle PreToolUse hooks
+    if 'PreToolUse' not in settings['hooks']:
+        settings['hooks']['PreToolUse'] = []
+    
+    existing_hooks = settings['hooks']['PreToolUse']
+    updated_hooks = []
+    task_matcher_exists = False
+    mcp_generic_exists = False
+    mcp_hooks_updated = 0
+    
+    for hook_config in existing_hooks:
+        # Remove our old hook from this config if present
+        if 'hooks' in hook_config:
+            filtered = []
+            for hook in hook_config.get('hooks', []):
+                command = hook.get('command', '')
+                if 'subagent-monitor' not in command:
+                    filtered.append(hook)
+            hook_config['hooks'] = filtered
         
-        # Remove old subagent-monitor hooks (if any)
-        existing_hooks = settings['hooks'][hook_type]
-        filtered_hooks = []
+        # Check matcher type
+        matcher = hook_config.get('matcher', '')
         
-        for hook_config in existing_hooks:
-            # Check if this is our hook by looking for subagent-monitor in the command
-            if 'hooks' in hook_config:
-                is_ours = False
-                for hook in hook_config.get('hooks', []):
-                    command = hook.get('command', '')
-                    if 'subagent-monitor' in command:
-                        is_ours = True
-                        break
-                
-                if not is_ours:
-                    # Keep hooks from other tools
-                    filtered_hooks.append(hook_config)
-            else:
-                # Keep hooks with different structure
-                filtered_hooks.append(hook_config)
+        # Add our hook to Task and MCP matchers
+        if matcher == 'Task':
+            task_matcher_exists = True
+            if 'hooks' not in hook_config:
+                hook_config['hooks'] = []
+            hook_config['hooks'].append(our_hook)
+        elif matcher.startswith('mcp'):
+            # Add to any MCP matcher (mcp.*, mcp__claude-slack__.*, etc)
+            if 'hooks' not in hook_config:
+                hook_config['hooks'] = []
+            hook_config['hooks'].append(our_hook)
+            mcp_hooks_updated += 1
+            if matcher == 'mcp.*':
+                mcp_generic_exists = True
         
-        # Add our new hook configs
-        filtered_hooks.extend(new_hook_configs)
-        settings['hooks'][hook_type] = filtered_hooks
-        
-        print(f"   ✓ Updated {hook_type} hook (preserved {len(filtered_hooks) - len(new_hook_configs)} existing hooks)")
+        # Keep the config if it has hooks
+        if hook_config.get('hooks'):
+            updated_hooks.append(hook_config)
+    
+    # Add Task matcher if it doesn't exist
+    if not task_matcher_exists:
+        updated_hooks.append({
+            "matcher": "Task",
+            "hooks": [our_hook]
+        })
+        print("   ✓ Added Task matcher")
+    
+    # Always add generic mcp.* matcher if it doesn't exist to catch any MCP tools without specific matchers
+    if not mcp_generic_exists:
+        updated_hooks.append({
+            "matcher": "mcp.*",
+            "hooks": [our_hook]
+        })
+        print("   ✓ Added mcp.* matcher")
+    
+    settings['hooks']['PreToolUse'] = updated_hooks
+    print(f"   ✓ Updated PreToolUse hooks (added to {mcp_hooks_updated} MCP matchers)")
+    
+    # Handle SubagentStop hook
+    if 'SubagentStop' not in settings['hooks']:
+        settings['hooks']['SubagentStop'] = []
+    
+    # Remove old subagent-monitor SubagentStop hooks
+    subagentstop_hooks = []
+    for hook_config in settings['hooks']['SubagentStop']:
+        if 'hooks' in hook_config:
+            filtered = []
+            for hook in hook_config.get('hooks', []):
+                command = hook.get('command', '')
+                if 'subagent-monitor' not in command:
+                    filtered.append(hook)
+            if filtered:
+                hook_config['hooks'] = filtered
+                subagentstop_hooks.append(hook_config)
+        else:
+            subagentstop_hooks.append(hook_config)
+    
+    # Add our SubagentStop hook
+    subagentstop_hooks.append({
+        "hooks": [
+            {
+                "type": "command",
+                "command": f"python3 {hooks_path}/subagentstop.py",
+                "timeout": 30
+            }
+        ]
+    })
+    
+    settings['hooks']['SubagentStop'] = subagentstop_hooks
+    print(f"   ✓ Updated SubagentStop hook")
     
     # Save settings
     with open(settings_path, 'w') as f:
