@@ -159,6 +159,48 @@ if __name__ == '__main__':
     symlink_path.symlink_to(bin_dir / 'subagent-query')
     print(f"   ✓ Created symlink: {symlink_path} -> bin/subagent-query")
     
+    # Create developer symlinks for easy library access
+    print("\n🔗 Creating developer symlinks...")
+    
+    # MCP context for MCP developers
+    mcp_link = base_dir / 'mcp_context.py'
+    if mcp_link.exists():
+        mcp_link.unlink()
+    try:
+        mcp_link.symlink_to(lib_dir / 'mcp_context.py')
+        print(f"   ✓ {mcp_link.name} -> lib/mcp_context.py")
+    except OSError:
+        # Fallback to copying on Windows or if symlinks not supported
+        shutil.copy2(lib_dir / 'mcp_context.py', mcp_link)
+        print(f"   ✓ {mcp_link.name} (copied)")
+    
+    # Subagent context for hook developers
+    subagent_link = base_dir / 'subagent_context.py'
+    if subagent_link.exists():
+        subagent_link.unlink()
+    try:
+        subagent_link.symlink_to(lib_dir / 'subagent_context.py')
+        print(f"   ✓ {subagent_link.name} -> lib/subagent_context.py")
+    except OSError:
+        shutil.copy2(lib_dir / 'subagent_context.py', subagent_link)
+        print(f"   ✓ {subagent_link.name} (copied)")
+    
+    # MCP correlation service for advanced users
+    correlation_link = base_dir / 'mcp_correlation_service.py'
+    if correlation_link.exists():
+        correlation_link.unlink()
+    try:
+        correlation_link.symlink_to(lib_dir / 'mcp_correlation_service.py')
+        print(f"   ✓ {correlation_link.name} -> lib/mcp_correlation_service.py")
+    except OSError:
+        shutil.copy2(lib_dir / 'mcp_correlation_service.py', correlation_link)
+        print(f"   ✓ {correlation_link.name} (copied)")
+    
+    print("\n📚 Developer files available at:")
+    print(f"   • {base_dir}/mcp_context.py - MCP context helper")
+    print(f"   • {base_dir}/subagent_context.py - Subagent detection")
+    print(f"   • {base_dir}/mcp_correlation_service.py - Correlation engine")
+    
     return base_dir
 
 def update_data_paths(monitor_dir: Path):
@@ -276,13 +318,40 @@ def update_settings(base_dir: Path, monitor_dir: Path, install_location: str):
     else:
         settings = {}
     
-    # Update hooks
+    # Update hooks - preserve existing hooks, only update our own
     if 'hooks' not in settings:
         settings['hooks'] = {}
     
-    for hook_type, hook_configs in new_hooks.items():
-        settings['hooks'][hook_type] = hook_configs
-        print(f"   ✓ Configured {hook_type} hook")
+    for hook_type, new_hook_configs in new_hooks.items():
+        if hook_type not in settings['hooks']:
+            settings['hooks'][hook_type] = []
+        
+        # Remove old subagent-monitor hooks (if any)
+        existing_hooks = settings['hooks'][hook_type]
+        filtered_hooks = []
+        
+        for hook_config in existing_hooks:
+            # Check if this is our hook by looking for subagent-monitor in the command
+            if 'hooks' in hook_config:
+                is_ours = False
+                for hook in hook_config.get('hooks', []):
+                    command = hook.get('command', '')
+                    if 'subagent-monitor' in command:
+                        is_ours = True
+                        break
+                
+                if not is_ours:
+                    # Keep hooks from other tools
+                    filtered_hooks.append(hook_config)
+            else:
+                # Keep hooks with different structure
+                filtered_hooks.append(hook_config)
+        
+        # Add our new hook configs
+        filtered_hooks.extend(new_hook_configs)
+        settings['hooks'][hook_type] = filtered_hooks
+        
+        print(f"   ✓ Updated {hook_type} hook (preserved {len(filtered_hooks) - len(new_hook_configs)} existing hooks)")
     
     # Save settings
     with open(settings_path, 'w') as f:
@@ -352,6 +421,73 @@ def verify_installation(base_dir: Path, monitor_dir: Path, install_location: str
     
     return all_good
 
+def uninstall(install_location='global'):
+    """Uninstall the monitoring system cleanly."""
+    if install_location == 'global':
+        base_dir = Path.home() / '.claude'
+        settings_path = base_dir / 'settings.json'
+    else:
+        base_dir = Path('.claude')
+        settings_path = base_dir / 'settings.local.json'
+    
+    monitor_dir = base_dir / 'subagent-monitor'
+    
+    print("🗑️  Uninstalling Claude Subagent Monitoring System")
+    print("=" * 50)
+    
+    # Remove hooks from settings
+    if settings_path.exists():
+        with open(settings_path, 'r') as f:
+            settings = json.load(f)
+        
+        if 'hooks' in settings:
+            for hook_type in ['PreToolUse', 'SubagentStop']:
+                if hook_type in settings['hooks']:
+                    original_count = len(settings['hooks'][hook_type])
+                    # Filter out our hooks
+                    filtered = []
+                    for hook_config in settings['hooks'][hook_type]:
+                        is_ours = False
+                        if 'hooks' in hook_config:
+                            for hook in hook_config.get('hooks', []):
+                                if 'subagent-monitor' in hook.get('command', ''):
+                                    is_ours = True
+                                    break
+                        if not is_ours:
+                            filtered.append(hook_config)
+                    
+                    settings['hooks'][hook_type] = filtered
+                    removed_count = original_count - len(filtered)
+                    if removed_count > 0:
+                        print(f"   ✓ Removed {removed_count} {hook_type} hook(s)")
+        
+        # Save updated settings
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f, indent=2)
+        print(f"   ✓ Updated {settings_path.name}")
+    
+    # Remove symlinks
+    symlinks = [
+        base_dir / 'subagent',
+        base_dir / 'mcp_context.py',
+        base_dir / 'subagent_context.py', 
+        base_dir / 'mcp_correlation_service.py'
+    ]
+    
+    for symlink in symlinks:
+        if symlink.exists():
+            symlink.unlink()
+            print(f"   ✓ Removed {symlink.name}")
+    
+    # Remove monitor directory
+    if monitor_dir.exists():
+        shutil.rmtree(monitor_dir)
+        print(f"   ✓ Removed {monitor_dir}")
+    
+    print("\n✅ Uninstallation complete!")
+    print("\nThe monitoring system has been removed.")
+    print("Your other hooks and settings remain intact.")
+
 def main():
     """Main installation function."""
     print("🚀 Claude Subagent Monitoring - Self-Contained Installer")
@@ -366,10 +502,35 @@ def main():
     
     # Installation type
     print("\n📋 Installation Options:")
-    print("1. Global (~/.claude/subagent-monitor/) - Recommended")
-    print("2. Project (./.claude/subagent-monitor/) - Project only")
+    print("1. Install globally (~/.claude/subagent-monitor/)")
+    print("2. Install to project (./.claude/subagent-monitor/)")
+    print("3. Uninstall")
     
-    choice = input("\nSelect [1/2] (default: 1): ").strip() or '1'
+    choice = input("\nSelect [1/2/3] (default: 1): ").strip() or '1'
+    
+    if choice == '3':
+        # Uninstall
+        print("\n🔍 Checking for installations...")
+        global_exists = (Path.home() / '.claude' / 'subagent-monitor').exists()
+        local_exists = (Path('.claude') / 'subagent-monitor').exists()
+        
+        if global_exists and local_exists:
+            print("Found both global and project installations.")
+            uninstall_choice = input("Uninstall [g]lobal, [p]roject, or [b]oth? ").lower()
+            if uninstall_choice == 'p':
+                uninstall('project')
+            elif uninstall_choice == 'b':
+                uninstall('global')
+                uninstall('project')
+            else:
+                uninstall('global')
+        elif global_exists:
+            uninstall('global')
+        elif local_exists:
+            uninstall('project')
+        else:
+            print("\n❌ No installation found.")
+        return
     
     if choice == '2':
         install_location = 'project'

@@ -29,6 +29,9 @@ Everything installs to a single `subagent-monitor/` directory:
 │   │   ├── sidechain_reconstructor.py
 │   │   ├── transcript_parser.py
 │   │   ├── enhanced_stats_analyzer.py
+│   │   ├── mcp_context.py
+│   │   ├── mcp_correlation_service.py
+│   │   ├── subagent_context.py
 │   │   └── ...
 │   ├── data/                        # Database and state files
 │   │   ├── subagents.db
@@ -36,7 +39,10 @@ Everything installs to a single `subagent-monitor/` directory:
 │   ├── bin/                         # Query command
 │   │   └── subagent-query
 │   └── README.md
-├── subagent → subagent-monitor/bin/subagent-query  # Convenient symlink
+├── subagent → subagent-monitor/bin/subagent-query  # Query command symlink
+├── mcp_context.py → subagent-monitor/lib/mcp_context.py  # Developer symlink
+├── subagent_context.py → subagent-monitor/lib/subagent_context.py  # Developer symlink
+├── mcp_correlation_service.py → subagent-monitor/lib/mcp_correlation_service.py  # Developer symlink
 └── settings.json                    # Hook configuration (only external file)
 ```
 
@@ -63,6 +69,53 @@ After installation and restarting Claude Code:
 # List active subagents
 ~/.claude/subagent active
 ```
+
+## 🚀 Developer Quick Start
+
+After installation, key libraries are symlinked to `~/.claude/` for easy access:
+
+### For MCP Developers
+```python
+# Add to your MCP server
+import sys
+import os
+sys.path.insert(0, os.path.expanduser('~/.claude'))
+from mcp_context import get_caller_context, with_context
+
+# Get session/agent context for any tool
+@with_context
+async def my_mcp_tool(params, context=None):
+    if context:
+        session_id = context['session_id']
+        agent_type = context['agent_type']
+        # Apply per-session logic, rate limiting, etc.
+    return {"result": "success"}
+```
+
+### For Hook Developers
+```python
+# Add to your custom hook
+import sys
+import os
+sys.path.insert(0, os.path.expanduser('~/.claude'))
+from subagent_context import get_current_subagent
+
+def my_hook(hook_data):
+    session_id = hook_data.get('session_id')
+    subagent = get_current_subagent(session_id)
+    
+    if subagent == 'code-reviewer':
+        # Apply special logic for code review agent
+        pass
+```
+
+### Available Developer Files
+After installation, these files are available at `~/.claude/`:
+- `mcp_context.py` - MCP context correlation helper
+- `subagent_context.py` - Subagent detection for hooks
+- `mcp_correlation_service.py` - Advanced correlation engine
+
+No package installation needed - just add `~/.claude` to your Python path!
 
 ## 🗂️ Repository Structure
 
@@ -197,6 +250,123 @@ The system tracks comprehensive metrics for each subagent:
 - Processes 15,400+ messages per second
 - 100% success rate across all transcript formats
 - Handles both main chain and sidechain message structures
+
+## 💻 Developer Integration Guide
+
+The monitoring system provides powerful APIs for developers building MCPs and hooks. After installation, key libraries are automatically available at `~/.claude/`.
+
+### Zero-Configuration Setup
+
+```python
+# Just add this to any Python file:
+import sys
+import os
+sys.path.insert(0, os.path.expanduser('~/.claude'))
+
+# Now import what you need:
+from mcp_context import get_caller_context       # For MCP developers
+from subagent_context import get_current_subagent # For hook developers
+```
+
+### Example: Session-Aware MCP Tool
+
+```python
+#!/usr/bin/env python3
+import sys
+import os
+sys.path.insert(0, os.path.expanduser('~/.claude'))
+from mcp_context import with_context
+
+@with_context
+async def fetch_url(params, context=None):
+    """Fetches URL with automatic session tracking."""
+    url = params['url']
+    
+    if context:
+        # You have access to:
+        # - context['session_id']     # Unique session identifier
+        # - context['agent_type']     # e.g., 'researcher', 'code-reviewer'
+        # - context['agent_confidence'] # 0.0 to 1.0
+        # - context['project_path']   # Current working directory
+        
+        print(f"Fetching {url} for session {context['session_id']}")
+        
+        # Implement per-session caching
+        cache_key = f"{context['session_id']}:{url}"
+        if cached := cache.get(cache_key):
+            return cached
+    
+    result = await do_fetch(url)
+    
+    if context:
+        cache.set(cache_key, result)
+    
+    return result
+```
+
+### Example: Agent-Aware Hook
+
+```python
+#!/usr/bin/env python3
+import sys
+import os
+sys.path.insert(0, os.path.expanduser('~/.claude'))
+from subagent_context import get_current_subagent
+
+def pre_write_hook(hook_data):
+    """Hook that applies different rules based on calling agent."""
+    session_id = hook_data.get('session_id')
+    file_path = hook_data.get('file_path')
+    
+    # Identify the calling agent
+    agent = get_current_subagent(session_id)
+    
+    if agent == 'code-reviewer':
+        # Stricter validation for code review agent
+        if not run_security_checks(file_path):
+            return {"block": True, "reason": "Security check failed"}
+    
+    elif agent == 'documentation-writer':
+        # Auto-format markdown for docs agent
+        format_markdown(file_path)
+    
+    return {"continue": True}
+```
+
+### Graceful Fallbacks
+
+All APIs are designed to work even if the monitoring system isn't installed:
+
+```python
+from mcp_context import get_caller_context
+
+context = get_caller_context('my_tool', params)
+if context:
+    # Enhanced behavior with context
+    session_id = context['session_id']
+else:
+    # Fallback behavior without context
+    session_id = 'unknown'
+```
+
+### Testing Your Integration
+
+```python
+# Test if context is available
+from mcp_context import get_caller_context
+
+def test_context():
+    test_params = {'test': True}
+    context = get_caller_context('test_tool', test_params)
+    
+    if context:
+        print(f"✅ Context available: {context}")
+    else:
+        print("❌ No context - monitoring system may not be installed")
+
+if __name__ == "__main__":
+    test_context()
+```
 
 ## 🔌 MCP Context Correlation
 
