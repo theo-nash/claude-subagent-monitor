@@ -285,6 +285,17 @@ def update_settings(base_dir: Path, monitor_dir: Path, install_location: str):
     new_hooks = {
         "PreToolUse": [
             {
+                "matcher": "Task",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"python3 {hooks_path}/pretooluse.py",
+                        "timeout": 10
+                    }
+                ]
+            },
+            {
+                "matcher": "mcp.*",
                 "hooks": [
                     {
                         "type": "command",

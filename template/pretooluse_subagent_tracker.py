@@ -35,7 +35,7 @@ def main():
             'transcript_path': transcript_path
         })
         
-        # Store correlation for MCP tools
+        # Handle MCP tools - store correlation for context
         if tool_name and tool_name.startswith('mcp'):
             try:
                 # Get current agent context
@@ -75,10 +75,15 @@ def main():
                 
             except Exception as e:
                 log_debug(f"Error storing MCP correlation: {e}")
+            
+            # MCP tools don't need further processing
+            write_hook_response(exit_code=0)
+            return
         
-        # Only process Task tool calls (subagent invocations)
+        # Process Task tool calls (subagent invocations)
         if tool_name != 'Task':
-            log_debug(f"Processed non-Task tool: {tool_name}")
+            # This shouldn't happen with proper matchers
+            log_debug(f"Unexpected tool in hook: {tool_name}")
             write_hook_response(exit_code=0)
             return
         
