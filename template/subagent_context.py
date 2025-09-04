@@ -222,6 +222,25 @@ def in_subagent_context(session_id: str = None) -> bool:
     return context.is_subagent_context(session_id)
 
 
+def get_current_agent(session_id: str = None) -> Tuple[str, float]:
+    """
+    Get the current agent type, whether main or subagent.
+    
+    Returns:
+        Tuple of (agent_type, confidence) where:
+        - agent_type: 'main' for main agent, or subagent type
+        - confidence: 1.0 for main or single subagent, lower for multiple subagents
+    """
+    context = SubagentContext()
+    subagent = context.get_current_subagent(session_id)
+    
+    if subagent:
+        return (subagent['type'], subagent.get('confidence', 1.0))
+    else:
+        # No subagent active - this is the main agent
+        return ('main', 1.0)
+
+
 # Example usage in a hook
 if __name__ == "__main__":
     # Example: Check calling subagent in a hook

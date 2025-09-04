@@ -26,11 +26,11 @@ class MCPCorrelationService:
     def __init__(self, db_path: Optional[str] = None):
         """Initialize the correlation service."""
         if db_path is None:
-            # Default to shared data directory
+            # Use the same database as subagent tracking
             data_dir = os.environ.get('SUBAGENT_DATA_DIR', 
                                       os.path.expanduser('~/.claude/subagent-monitor/data'))
             os.makedirs(data_dir, exist_ok=True)
-            db_path = os.path.join(data_dir, 'mcp_correlations.db')
+            db_path = os.path.join(data_dir, 'subagents.db')
         
         self.db_path = db_path
         self.lock = Lock()
@@ -41,46 +41,21 @@ class MCPCorrelationService:
         self.cleanup_interval = 60  # seconds to keep old correlations
     
     def _init_database(self):
-        """Initialize correlation database schema."""
-        # Create connection and initialize schema
+        """Ensure database exists with proper schema."""
+        # The table is now created by database_utils.py
+        # We just need to ensure the database exists
+        from database_utils import SubagentTracker
+        
+        # Initialize the main database (this creates all tables including mcp_correlations)
+        tracker = SubagentTracker(self.db_path)
+        
+        # Verify our table exists
         conn = sqlite3.connect(self.db_path)
         try:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS mcp_correlations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    tool_name TEXT NOT NULL,
-                    param_hash TEXT NOT NULL,
-                    param_preview TEXT,
-                    session_id TEXT NOT NULL,
-                    agent_type TEXT,
-                    agent_confidence REAL,
-                    matched BOOLEAN DEFAULT 0,
-                    matched_at REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    
-                    -- Additional context
-                    project_path TEXT,
-                    user_message TEXT,
-                    sequence_num INTEGER,
-                    
-                    -- Indexing for fast lookup
-                    UNIQUE(tool_name, param_hash, timestamp)
-                )
-            ''')
-            
-            # Create indexes for performance
-            conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_correlation_lookup 
-                ON mcp_correlations(tool_name, param_hash, timestamp)
-            ''')
-            
-            conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_correlation_cleanup 
-                ON mcp_correlations(created_at)
-            ''')
-            
-            conn.commit()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='mcp_correlations'")
+            if not cursor.fetchone():
+                raise RuntimeError("mcp_correlations table not found in database")
         finally:
             conn.close()
     

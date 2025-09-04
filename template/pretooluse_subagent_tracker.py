@@ -38,22 +38,9 @@ def main():
         # Handle MCP tools - store correlation for context
         if tool_name and tool_name.startswith('mcp'):
             try:
-                # Get current agent context for this session only
-                active_tracker = ActiveSubagentTracker()
-                active_agents = active_tracker.get_active_subagents(session_id)
-                
-                # Use most recently started agent if multiple active
-                current_agent = None
-                current_confidence = 0.0
-                if active_agents:
-                    # Sort by start time (most recent first)
-                    sorted_agents = sorted(active_agents, 
-                                         key=lambda a: a['started_at'], 
-                                         reverse=True)
-                    if sorted_agents:
-                        current_agent = sorted_agents[0]['subagent_type']
-                        # Confidence based on number of active agents
-                        current_confidence = 1.0 / len(active_agents)
+                # Get current agent context using the unified detection
+                from subagent_context import get_current_agent
+                current_agent, current_confidence = get_current_agent(session_id)
                 
                 # Store correlation
                 correlation_id = store_mcp_context(

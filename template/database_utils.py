@@ -108,6 +108,29 @@ class SubagentTracker:
             FOREIGN KEY (subagent_session_id) REFERENCES subagent_sessions(id) ON DELETE CASCADE
         );
 
+        -- MCP Correlation Table
+        CREATE TABLE IF NOT EXISTS mcp_correlations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp REAL NOT NULL,
+            tool_name TEXT NOT NULL,
+            param_hash TEXT NOT NULL,
+            param_preview TEXT,
+            session_id TEXT NOT NULL,
+            agent_type TEXT,
+            agent_confidence REAL,
+            matched BOOLEAN DEFAULT 0,
+            matched_at REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            
+            -- Additional context
+            project_path TEXT,
+            user_message TEXT,
+            sequence_num INTEGER,
+            
+            -- Indexing for fast lookup
+            UNIQUE(tool_name, param_hash, timestamp)
+        );
+
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_subagent_sessions_session_id ON subagent_sessions(session_id);
         CREATE INDEX IF NOT EXISTS idx_subagent_sessions_active ON subagent_sessions(is_active);
@@ -116,6 +139,9 @@ class SubagentTracker:
         CREATE INDEX IF NOT EXISTS idx_tool_usage_session ON subagent_tool_usage(subagent_session_id);
         CREATE INDEX IF NOT EXISTS idx_message_stats_session ON subagent_message_stats(subagent_session_id);
         CREATE INDEX IF NOT EXISTS idx_errors_session ON subagent_errors(subagent_session_id);
+        CREATE INDEX IF NOT EXISTS idx_correlation_lookup ON mcp_correlations(tool_name, param_hash, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_correlation_cleanup ON mcp_correlations(created_at);
+        CREATE INDEX IF NOT EXISTS idx_correlation_session ON mcp_correlations(session_id);
 
         -- Triggers
         CREATE TRIGGER IF NOT EXISTS update_subagent_duration 
